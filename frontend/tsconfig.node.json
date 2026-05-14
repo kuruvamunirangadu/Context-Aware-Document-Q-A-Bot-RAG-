@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["vite.config.ts"]
+}
