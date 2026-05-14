@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import faiss
 import numpy as np
+from sklearn.preprocessing import normalize
 from sentence_transformers import SentenceTransformer
 
 
@@ -23,13 +24,15 @@ def generate_embeddings(chunks: list[dict]) -> np.ndarray:
         return np.empty((0, dim), dtype="float32")
 
     embeddings = model.encode(texts)
-    return np.array(embeddings).astype("float32")
+    normalized_embeddings = normalize(np.array(embeddings).astype("float32"))
+    return normalized_embeddings
 
 
 def generate_query_embedding(question: str) -> np.ndarray:
     model = _get_model()
     query_embedding = model.encode([question])
-    return np.array(query_embedding).astype("float32")
+    normalized_query_embedding = normalize(np.array(query_embedding).astype("float32"))
+    return normalized_query_embedding
 
 
 def create_faiss_index(embeddings: np.ndarray) -> faiss.Index:
@@ -37,7 +40,7 @@ def create_faiss_index(embeddings: np.ndarray) -> faiss.Index:
         raise ValueError("Embeddings must be a 2D array")
 
     dimension = embeddings.shape[1]
-    index = faiss.IndexFlatL2(dimension)
+    index = faiss.IndexFlatIP(dimension)
 
     if embeddings.shape[0] > 0:
         index.add(embeddings)

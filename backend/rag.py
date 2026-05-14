@@ -5,9 +5,9 @@ import faiss
 from embeddings import generate_query_embedding
 
 
-def calculate_confidence(distance: float) -> float:
-    confidence = 1 / (1 + distance)
-    return round(confidence * 100, 2)
+def calculate_confidence(similarity: float) -> float:
+    confidence = max(0.0, similarity) * 100
+    return round(confidence, 2)
 
 
 def retrieve_relevant_chunks(
@@ -24,7 +24,7 @@ def retrieve_relevant_chunks(
         return []
 
     query_embedding = generate_query_embedding(question)
-    distances, indices = index.search(query_embedding, safe_top_k)
+    similarities, indices = index.search(query_embedding, safe_top_k)
 
     results: list[dict] = []
     for i in range(safe_top_k):
@@ -32,15 +32,18 @@ def retrieve_relevant_chunks(
         if chunk_index < 0 or chunk_index >= len(chunks):
             continue
 
-        distance = float(distances[0][i])
+        similarity = float(similarities[0][i])
         retrieved_chunk = chunks[chunk_index]
-        confidence = calculate_confidence(distance)
+        confidence = calculate_confidence(similarity)
         results.append(
             {
                 "chunk_id": retrieved_chunk.get("chunk_id"),
                 "page": retrieved_chunk.get("page"),
                 "text": retrieved_chunk.get("text", ""),
-                "distance": round(distance, 4),
+                "paragraph_text": retrieved_chunk.get("paragraph_text", retrieved_chunk.get("text", "")),
+                "paragraph_index": retrieved_chunk.get("paragraph_index"),
+                "paragraph_chunk_index": retrieved_chunk.get("paragraph_chunk_index"),
+                "score": round(similarity, 4),
                 "confidence": confidence,
             }
         )

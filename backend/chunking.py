@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+import re
+
+from parser import ParagraphRecord
+
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[dict]:
     words = text.split()
@@ -27,23 +32,57 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[dic
     return chunks
 
 
-def create_document_chunks(parsed_data: dict) -> list[dict]:
+def _split_paragraphs(text: str) -> list[str]:
+    cleaned = re.sub(r"\r\n?", "\n", text).strip()
+    if not cleaned:
+        return []
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n\s*\n", cleaned) if paragraph.strip()]
+    if paragraphs:
+        return paragraphs
+    return [line.strip() for line in cleaned.split("\n") if line.strip()]
+
+
+def _iter_paragraph_records(parsed_data: object) -> Iterable[ParagraphRecord]:
+    if isinstance(parsed_data, list):
+        for record in parsed_data:
+            if isinstance(record, ParagraphRecord):
+                yield record
+        return
+
+    if isinstance(parsed_data, dict):
+        for page_data in parsed_data.get("pages", []):
+            page_number = page_data.get("page")
+            text = page_data.get("text", "")
+            for paragraph_index, paragraph in enumerate(_split_paragraphs(text), start=1):
+                yield ParagraphRecord(
+                    file_name=str(parsed_data.get("metadata", {}).get("title", "document")),
+                    text=paragraph,
+                    page=page_number,
+                    paragraph_index=paragraph_index,
+                )
+
+
+def create_document_chunks(parsed_data: object) -> list[dict]:
     all_chunks: list[dict] = []
     global_chunk_id = 1
 
-    for page_data in parsed_data.get("pages", []):
-        page_number = page_data.get("page")
-        text = page_data.get("text", "")
+    for paragraph_record in _iter_paragraph_records(parsed_data):
+        paragraph_text = paragraph_record.text.strip()
+        if not paragraph_text:
+            continue
 
-        page_chunks = chunk_text(text)
+        paragraph_chunks = chunk_text(paragraph_text)
 
-        for chunk in page_chunks:
+        for paragraph_chunk_index, chunk in enumerate(paragraph_chunks, start=1):
             all_chunks.append(
                 {
                     "chunk_id": global_chunk_id,
-                    "page": page_number,
+                    "page": paragraph_record.page,
                     "text": chunk["text"],
-                    "metadata": parsed_data.get("metadata", {}),
+                    "paragraph_text": paragraph_text,
+                    "paragraph_index": paragraph_record.paragraph_index,
+                    "paragraph_chunk_index": paragraph_chunk_index,
+                    "file_name": paragraph_record.file_name,
                 }
             )
             global_chunk_id += 1

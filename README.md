@@ -15,9 +15,11 @@ The application is designed to answer only from uploaded content. It returns sou
 - OpenAI-powered grounded answers
 - ChatGPT-style chat UI
 - Session conversation history
+- Multiple uploaded documents with per-document sessions
 - Source references and confidence scores
-- Out-of-scope detection and hallucination prevention
-- Retrieved chunk previews for explainability
+- Exact paragraph previews for explainability
+- Cosine similarity retrieval with normalized embeddings
+- Out-of-scope detection using similarity plus lexical overlap
 
 ## Architecture
 
@@ -67,12 +69,12 @@ This helps keep context continuity between neighboring chunks and improves retri
 1. Parse uploaded PDF or TXT into page-level text.
 2. Split text into overlapping chunks.
 3. Convert chunks into embeddings.
-4. Store vectors in FAISS.
+5. Normalize vectors and store them in FAISS.
 5. Convert user questions into embeddings.
-6. Retrieve the top-k most similar chunks.
-7. Apply a confidence guard to avoid hallucinations.
-8. Send the retrieved context to OpenAI.
-9. Return the grounded answer with sources.
+7. Retrieve the top-k most similar chunks with cosine similarity.
+8. Use a relevance classifier to decide whether the question is in scope.
+9. Send the retrieved context and matched paragraph to OpenAI.
+10. Return the grounded answer with sources and confidence.
 
 ## API Endpoints
 
@@ -86,6 +88,8 @@ Create `backend/.env` from `backend/.env.example` and set:
 ```env
 OPENAI_API_KEY=your_api_key_here
 OPENAI_MODEL=gpt-4o-mini
+MIN_SIMILARITY_FOR_ANSWER=0.28
+MIN_OVERLAP_FOR_ANSWER=0.15
 ```
 
 You can also set the frontend API URL with:
@@ -171,3 +175,4 @@ Add final screenshots to the `screenshots/` folder for the GitHub README.
 - `422 Unprocessable Entity` usually means the field name does not match. Use `file` in the upload form.
 - `Please upload a document first` from `/ask` means the backend has not indexed a document in the current process.
 - `LLM is not configured` means `OPENAI_API_KEY` is missing from `backend/.env`.
+- If a clearly in-document question still falls back, check `MIN_SIMILARITY_FOR_ANSWER` and `MIN_OVERLAP_FOR_ANSWER` in `.env`.
