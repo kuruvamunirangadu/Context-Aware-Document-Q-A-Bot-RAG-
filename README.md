@@ -66,15 +66,16 @@ This helps keep context continuity between neighboring chunks and improves retri
 
 ## Retrieval Pipeline
 
-1. Parse uploaded PDF or TXT into page-level text.
-2. Split text into overlapping chunks.
-3. Convert chunks into embeddings.
-5. Normalize vectors and store them in FAISS.
+1. Parse uploaded PDF or TXT into page-level text with page metadata.
+2. Split text into overlapping chunks (500 words, 100-word overlap).
+3. Generate embeddings using Sentence Transformers (all-MiniLM-L6-v2).
+4. Normalize vectors and store in FAISS IndexFlatIP (cosine similarity).
 5. Convert user questions into embeddings.
-7. Retrieve the top-k most similar chunks with cosine similarity.
-8. Use a relevance classifier to decide whether the question is in scope.
-9. Send the retrieved context and matched paragraph to OpenAI.
-10. Return the grounded answer with sources and confidence.
+6. Retrieve top-k chunks using FAISS similarity search.
+7. Apply dual-scoring: lexical overlap + semantic similarity.
+8. Classify scope (in-scope/out-of-scope) using thresholds.
+9. Send top retrieved context + matched paragraph to OpenAI.
+10. Return grounded answer with sources, confidence, and scope info.
 
 ## API Endpoints
 
@@ -138,15 +139,23 @@ Vercel frontend settings:
 - Framework preset: Vite
 - Environment variable: `VITE_API_BASE_URL=https://your-backend.onrender.com`
 
-## Demo Checklist
+## Testing
 
-Use a 2 to 5 minute demo video covering:
+Run the E2E test script to validate the system:
 
-1. Upload a PDF or TXT file.
-2. Ask a grounded question.
-3. Show source references and confidence.
-4. Show retrieved chunk previews.
-5. Ask an out-of-scope question and show the fallback response.
+```bash
+python e2e_test.py
+```
+
+This uploads a sample document and tests retrieval + Q&A on real content.
+
+## Key Implementation Notes
+
+- **Dual Scoring**: Combines semantic similarity (70%) + lexical overlap (30%) for robust retrieval
+- **Fuzzy Matching**: Handles typos and synonym variations in questions
+- **Table-of-Contents Detection**: Filters low-quality chunks (headings, page numbers)
+- **Session Persistence**: SQLite database maintains chat history per session
+- **Smart Banners**: Detects document theme (emotional, technical, academic) for context-aware UI
 
 ## Screenshots
 
