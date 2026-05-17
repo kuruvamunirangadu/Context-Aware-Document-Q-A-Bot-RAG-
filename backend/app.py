@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -14,6 +16,7 @@ from embeddings import create_faiss_index, generate_embeddings
 from llm import classify_scope, generate_answer
 from parser import extract_paragraphs
 from rag import retrieve_relevant_chunks
+from chat_db import init_db, create_session, save_message, get_sessions, get_session_messages, delete_session, update_session_title
 
 app = FastAPI()
 
@@ -28,6 +31,21 @@ app.add_middleware(
 UPLOAD_FOLDER = "uploads"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Initialize chat database
+init_db()
+
+# Logging setup for ask calls
+LOGS_FOLDER = "logs"
+os.makedirs(LOGS_FOLDER, exist_ok=True)
+logger = logging.getLogger("rag_logger")
+logger.setLevel(logging.INFO)
+fh = logging.FileHandler(os.path.join(LOGS_FOLDER, "ask_calls.log"))
+fh.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+fh.setFormatter(formatter)
+if not logger.handlers:
+    logger.addHandler(fh)
 
 
 @dataclass(slots=True)
@@ -47,6 +65,22 @@ active_document_id: str | None = None
 class QuestionRequest(BaseModel):
     question: str
     doc_id: str | None = None
+
+
+class ChatSessionRequest(BaseModel):
+    session_id: str
+    doc_id: str
+    doc_name: str
+
+
+class SaveMessageRequest(BaseModel):
+    session_id: str
+    message_id: str
+    role: str
+    content: str
+    sources: list | None = None
+    matched_paragraph: str | None = None
+    scope: dict | None = None
 
 
 @app.get("/")
@@ -148,6 +182,22 @@ async def ask_question(request: QuestionRequest):
             }
         )
 
+    # Structured logging for diagnosis: record question, scope, retrieved chunks, and answer
+    try:
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "doc_id": session.doc_id,
+            "filename": session.filename,
+            "question": request.question,
+            "scope": scope,
+            "retrieved_chunks": results,
+            "sources": sources,
+            "answer": answer,
+        }
+        logger.info(json.dumps(log_entry, ensure_ascii=False))
+    except Exception:
+        logger.exception("Failed to write ask log")
+
     return {
         "question": request.question,
         "answer": answer,
@@ -157,4 +207,72 @@ async def ask_question(request: QuestionRequest):
         "filename": session.filename,
         "scope": scope,
     }
+
+
+@app.post("/sessions/create")
+def create_chat_session(request: ChatSessionRequest):
+    """Create a new chat session"""
+    try:
+        create_session(request.session_id, request.doc_id, request.doc_name)
+        return {"success": True, "session_id": request.session_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sessions")
+def list_chat_sessions():
+    """List all chat sessions"""
+    try:
+        sessions = get_sessions()
+        return {"sessions": sessions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/sessions/{session_id}/messages")
+def get_chat_messages(session_id: str):
+    """Get all messages for a session"""
+    try:
+        messages = get_session_messages(session_id)
+        return {"messages": messages}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/sessions/{session_id}/messages")
+def save_chat_message(session_id: str, request: SaveMessageRequest):
+    """Save a message to a session"""
+    try:
+        save_message(
+            request.message_id,
+            session_id,
+            request.role,
+            request.content,
+            request.sources,
+            request.matched_paragraph,
+            request.scope,
+        )
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/sessions/{session_id}")
+def delete_chat_session(session_id: str):
+    """Delete a chat session and all its messages"""
+    try:
+        delete_session(session_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/sessions/{session_id}/title")
+def update_chat_session_title(session_id: str, title: str):
+    """Update session title"""
+    try:
+        update_session_title(session_id, title)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 

@@ -1,12 +1,42 @@
-backend/.venv/
-frontend/node_modules/
-frontend/dist/
-__pycache__/
-*.pyc
-.DS_Store
+# Environment variables (API keys, secrets)
 .env
 .env.local
+.env.*.local
+backend/.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.venv/
+venv/
+ENV/
+env/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+npm-debug.log
+yarn-error.log
+
+# Project folders
 uploads/
 backend/uploads/
+backend/logs/
 backend/*.txt
+
+# Frontend build
 frontend/*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -148,6 +148,9 @@ def _get_client() -> OpenAI | None:
 def generate_answer(question: str, retrieved_chunks: list[dict]) -> str:
     client = _get_client()
     if client is None:
+        # If LLM is not configured, fall back to returning the top retrieved paragraph
+        if retrieved_chunks:
+            return retrieved_chunks[0].get("paragraph_text", retrieved_chunks[0].get("text", "Answer not found in document."))
         return "LLM is not configured. Set OPENAI_API_KEY to generate answers."
 
     scope = classify_scope(question, retrieved_chunks)
@@ -184,9 +187,15 @@ Answer:
             temperature=0.1,
         )
     except Exception:
+        # On API failure, fall back to the top retrieved paragraph when available
+        if retrieved_chunks:
+            return retrieved_chunks[0].get("paragraph_text", retrieved_chunks[0].get("text", "Answer not found in document."))
         return "Answer not found in document."
 
     text = (response.choices[0].message.content or "").strip()
-    if not text:
+    if not text or text == "Answer not found in document.":
+        if retrieved_chunks:
+            return retrieved_chunks[0].get("paragraph_text", retrieved_chunks[0].get("text", "Answer not found in document."))
         return "Answer not found in document."
+
     return text
