@@ -4,7 +4,7 @@ import faiss
 import re
 from difflib import SequenceMatcher
 
-from embeddings import generate_query_embedding
+from .embeddings import generate_query_embedding
 
 
 _STOPWORDS = {

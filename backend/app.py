@@ -11,12 +11,12 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from chunking import create_document_chunks
-from embeddings import create_faiss_index, generate_embeddings
-from llm import classify_scope, generate_answer
-from parser import extract_paragraphs
-from rag import retrieve_relevant_chunks
-from chat_db import init_db, create_session, save_message, get_sessions, get_session_messages, delete_session, update_session_title
+from .chunking import create_document_chunks
+from .embeddings import create_faiss_index, generate_embeddings
+from .llm import classify_scope, generate_answer
+from .parser import extract_paragraphs
+from .rag import retrieve_relevant_chunks
+from .chat_db import init_db, create_session, save_message, get_sessions, get_session_messages, delete_session, update_session_title
 
 app = FastAPI()
 

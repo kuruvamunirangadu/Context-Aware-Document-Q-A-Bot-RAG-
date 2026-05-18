@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 import re
 
-from parser import ParagraphRecord
+from .parser import ParagraphRecord
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> list[dict]:
