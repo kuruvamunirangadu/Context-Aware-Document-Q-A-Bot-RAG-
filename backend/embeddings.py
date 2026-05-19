@@ -1,51 +1,70 @@
 from __future__ import annotations
 
-import faiss
-import numpy as np
-from sklearn.preprocessing import normalize
-from typing import Any
+import hashlib
+import math
+import os
+import re
+from dataclasses import dataclass
+from typing import Sequence
 
 
-_MODEL: Any | None = None
+_VECTOR_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION", "512"))
+_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9']+")
 
 
-def _get_model() -> Any:
-    global _MODEL
-    if _MODEL is None:
-        # Import lazily so the web process can start without loading torch/transformers at boot.
-        from sentence_transformers import SentenceTransformer
-
-        _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-    return _MODEL
+def _tokenize(text: str) -> list[str]:
+    return [token.lower() for token in _TOKEN_PATTERN.findall(text)]
 
 
-def generate_embeddings(chunks: list[dict]) -> np.ndarray:
-    model = _get_model()
-    texts = [chunk["text"] for chunk in chunks if chunk.get("text")]
-    if not texts:
-        dim = model.get_sentence_embedding_dimension()
-        return np.empty((0, dim), dtype="float32")
-
-    embeddings = model.encode(texts)
-    normalized_embeddings = normalize(np.array(embeddings).astype("float32"))
-    return normalized_embeddings
+def _bucket_for_token(token: str) -> int:
+    digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big") % _VECTOR_DIMENSION
 
 
-def generate_query_embedding(question: str) -> np.ndarray:
-    model = _get_model()
-    query_embedding = model.encode([question])
-    normalized_query_embedding = normalize(np.array(query_embedding).astype("float32"))
-    return normalized_query_embedding
+def _normalize(vector: list[float]) -> list[float]:
+    magnitude = math.sqrt(sum(value * value for value in vector))
+    if magnitude == 0.0:
+        return vector
+
+    return [value / magnitude for value in vector]
 
 
-def create_faiss_index(embeddings: np.ndarray) -> faiss.Index:
-    if embeddings.ndim != 2:
-        raise ValueError("Embeddings must be a 2D array")
+def _vectorize(text: str) -> list[float]:
+    vector = [0.0] * _VECTOR_DIMENSION
+    for token in _tokenize(text):
+        vector[_bucket_for_token(token)] += 1.0
+    return _normalize(vector)
 
-    dimension = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dimension)
 
-    if embeddings.shape[0] > 0:
-        index.add(embeddings)
+@dataclass(slots=True)
+class SimpleIndex:
+    vectors: list[list[float]]
 
-    return index
+    @property
+    def ntotal(self) -> int:
+        return len(self.vectors)
+
+    def search(self, query_vector: Sequence[float], top_k: int) -> tuple[list[list[float]], list[list[int]]]:
+        if top_k <= 0 or not self.vectors:
+            return [[]], [[]]
+
+        scored_vectors: list[tuple[float, int]] = []
+        for index, vector in enumerate(self.vectors):
+            score = sum(float(a) * float(b) for a, b in zip(query_vector, vector))
+            scored_vectors.append((score, index))
+
+        scored_vectors.sort(key=lambda item: item[0], reverse=True)
+        top_results = scored_vectors[:top_k]
+        return [[score for score, _ in top_results]], [[index for _, index in top_results]]
+
+
+def generate_embeddings(chunks: list[dict]) -> list[list[float]]:
+    return [_vectorize(chunk.get("text", "")) for chunk in chunks]
+
+
+def generate_query_embedding(question: str) -> list[float]:
+    return _vectorize(question)
+
+
+def create_faiss_index(embeddings: list[list[float]]) -> SimpleIndex:
+    return SimpleIndex(vectors=[list(vector) for vector in embeddings])

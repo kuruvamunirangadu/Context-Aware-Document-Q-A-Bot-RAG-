@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import faiss
 import re
 from difflib import SequenceMatcher
 
@@ -103,7 +102,7 @@ def calculate_confidence(similarity: float) -> float:
 
 def retrieve_relevant_chunks(
     question: str,
-    index: faiss.Index,
+    index,
     chunks: list[dict],
     top_k: int = 3,
 ) -> list[dict]:

@@ -142,7 +142,7 @@ async def upload(file: UploadFile = File(...)):
         "doc_id": doc_id,
         "filename": file.filename,
         "total_chunks": len(chunks),
-        "embedding_dimension": int(embeddings.shape[1]) if embeddings.ndim == 2 else 0,
+        "embedding_dimension": len(embeddings[0]) if embeddings else 0,
         "vectors_stored": int(index.ntotal),
     }
 
