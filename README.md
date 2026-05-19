@@ -88,101 +88,21 @@ Create `backend/.env` from `backend/.env.example` and set:
 
 ```env
 OPENAI_API_KEY=your_api_key_here
-OPENAI_MODEL=gpt-4o-mini
-MIN_SIMILARITY_FOR_ANSWER=0.28
-MIN_OVERLAP_FOR_ANSWER=0.15
-```
+Context-Aware Document Q&A Bot
 
-You can also set the frontend API URL with:
+Minimal submission README — quick usage
 
-```env
-VITE_API_BASE_URL=http://127.0.0.1:8000
-```
+- Run backend (from repository root):
 
-## Local Setup
+  python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
 
-Backend:
+- Build frontend:
 
+  npm ci --prefix frontend && npm run build --prefix frontend
+
+- For deployment: set `VITE_API_BASE_URL` to your backend URL and `OPENAI_API_KEY` in backend env.
+
+Other project details were removed for brevity. See source files for implementation.
+
+Deployed frontend: https://frontend-two-tawny-50.vercel.app/
 ```bash
-cd backend
-copy .env.example .env
-pip install -r requirements.txt
-uvicorn app:app --reload
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Open the frontend at `http://localhost:5173` and the backend docs at `http://127.0.0.1:8000/docs`.
-
-## Deployment
-
-Recommended production split:
-
-- Frontend: Vercel
-- Backend: Render
-
-Render backend settings:
-
-- Runtime: Python
-- Build Command: `pip install -r requirements.txt`
-- Start Command: `uvicorn app:app --host 0.0.0.0 --port 10000`
-- Environment variable: `OPENAI_API_KEY`
-
-Vercel frontend settings:
-
-- Framework preset: Vite
-- Environment variable: `VITE_API_BASE_URL=https://context-aware-document-q-a-bot-rag-1.onrender.com`
-- The deployed frontend can also link directly to the backend docs at `https://context-aware-document-q-a-bot-rag-1.onrender.com/docs`
-
-## Testing
-
-Run the E2E test script to validate the system:
-
-```bash
-python e2e_test.py
-```
-
-This uploads a sample document and tests retrieval + Q&A on real content.
-
-## Key Implementation Notes
-
-- **Dual Scoring**: Combines semantic similarity (70%) + lexical overlap (30%) for robust retrieval
-- **Fuzzy Matching**: Handles typos and synonym variations in questions
-- **Table-of-Contents Detection**: Filters low-quality chunks (headings, page numbers)
-- **Session Persistence**: SQLite database maintains chat history per session
-- **Smart Banners**: Detects document theme (emotional, technical, academic) for context-aware UI
-
-## Screenshots
-
-Add final screenshots to the `screenshots/` folder for the GitHub README.
-
-## Project Layout
-
-- `backend/app.py` - API routes
-- `backend/parser.py` - PDF/TXT parsing
-- `backend/chunking.py` - chunk generation
-- `backend/embeddings.py` - embeddings and FAISS index creation
-- `backend/rag.py` - semantic retrieval
-- `backend/llm.py` - OpenAI answer generation
-- `frontend/src/components/` - chat UI components
-
-## Future Improvements
-
-- Multi-document sessions
-- OCR for scanned PDFs
-- Streaming responses
-- Persistent vector storage
-- Semantic reranking
-
-## Common Issues
-
-- `422 Unprocessable Entity` usually means the field name does not match. Use `file` in the upload form.
-- `Please upload a document first` from `/ask` means the backend has not indexed a document in the current process.
-- `LLM is not configured` means `OPENAI_API_KEY` is missing from `backend/.env`.
-- If a clearly in-document question still falls back, check `MIN_SIMILARITY_FOR_ANSWER` and `MIN_OVERLAP_FOR_ANSWER` in `.env`.
