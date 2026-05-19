@@ -3,15 +3,18 @@ from __future__ import annotations
 import faiss
 import numpy as np
 from sklearn.preprocessing import normalize
-from sentence_transformers import SentenceTransformer
+from typing import Any
 
 
-_MODEL: SentenceTransformer | None = None
+_MODEL: Any | None = None
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model() -> Any:
     global _MODEL
     if _MODEL is None:
+        # Import lazily so the web process can start without loading torch/transformers at boot.
+        from sentence_transformers import SentenceTransformer
+
         _MODEL = SentenceTransformer("all-MiniLM-L6-v2")
     return _MODEL
 
