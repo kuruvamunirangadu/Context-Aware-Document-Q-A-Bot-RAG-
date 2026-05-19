@@ -14,3 +14,4 @@ backend/logs/
 screenshots/
 chat_sessions.db
 frontend/
+# Do not ignore api/ folder - it's required for Vercel deployment
