@@ -75,6 +75,7 @@ export type DocumentsResult = {
 export type UploadDocumentResult = {
   message: string;
   document: DocumentItem;
+  uploadedFile: File;
 };
 
 export type AskQuestionResult = {
@@ -148,14 +149,17 @@ export const getDocument = async (docId: string): Promise<DocumentItem> => {
 };
 
 export const uploadDocument = async (file: File): Promise<UploadDocumentResult> => {
+  const uploadFile = await prepareFileForUpload(file);
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append('file', uploadFile);
 
   console.info('Uploading document to backend', {
     apiBaseUrl: API_BASE_URL,
     endpoint: '/upload',
-    filename: file.name,
-    size: file.size,
+    originalFilename: file.name,
+    uploadedFilename: uploadFile.name,
+    originalSize: file.size,
+    uploadedSize: uploadFile.size,
   });
 
   const response = await apiClient.post('/upload', formData, {
@@ -165,7 +169,7 @@ export const uploadDocument = async (file: File): Promise<UploadDocumentResult> 
 
   const document: DocumentItem = {
     docId: String(response.data?.doc_id),
-    filename: String(response.data?.filename ?? file.name),
+    filename: String(response.data?.filename ?? uploadFile.name),
     totalChunks: Number(response.data?.total_chunks ?? 0),
     createdAt: new Date().toISOString(),
     status: response.data?.status === 'processing' ? 'processing' : 'ready',
@@ -175,7 +179,25 @@ export const uploadDocument = async (file: File): Promise<UploadDocumentResult> 
   return {
     document,
     message: String(response.data?.message ?? 'Document processed'),
+    uploadedFile: uploadFile,
   };
+};
+
+const prepareFileForUpload = async (file: File): Promise<File> => {
+  const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+
+  if (!isPdf) {
+    return file;
+  }
+
+  const { extractPdfText, fileNameWithoutExtension } = await import('./pdfText.js');
+  const text = await extractPdfText(file);
+  const txtName = `${fileNameWithoutExtension(file.name)}.txt`;
+
+  return new File([text], txtName, {
+    type: 'text/plain;charset=utf-8',
+    lastModified: Date.now(),
+  });
 };
 
 export const askQuestion = async (question: string, docId: string): Promise<AskQuestionResult> => {

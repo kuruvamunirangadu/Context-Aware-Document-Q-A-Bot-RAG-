@@ -315,7 +315,11 @@ export default function App() {
     }
 
     setUploading(true);
-    setStatusMessage('Processing document and building vector index...');
+    setStatusMessage(
+      selectedFile.name.toLowerCase().endsWith('.pdf')
+        ? 'Extracting text from PDF before uploading to backend...'
+        : 'Processing document and building vector index...',
+    );
 
     try {
       const { document: acceptedDocument, message } = await uploadDocument(selectedFile);
