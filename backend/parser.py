@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import os
 import re
 
-import fitz
+
 
 
 @dataclass(slots=True)
@@ -26,6 +26,11 @@ def _split_paragraphs(text: str) -> list[str]:
 
 
 def extract_text_from_pdf(file_path: str) -> dict:
+    try:
+        import fitz  # PyMuPDF; import locally to avoid import-time failure in constrained hosts
+    except Exception as exc:  # pragma: no cover - runtime environment may lack PyMuPDF
+        raise ImportError("PyMuPDF (fitz) is required to extract PDF text") from exc
+
     document = fitz.open(file_path)
     extracted_pages = []
     metadata = document.metadata
@@ -74,6 +79,11 @@ def extract_paragraphs(file_name: str, file_bytes: bytes) -> list[ParagraphRecor
         ]
 
     if suffix == ".pdf":
+        try:
+            import fitz  # local import to delay dependency requirement until PDF handling
+        except Exception as exc:  # pragma: no cover - runtime environment may lack PyMuPDF
+            raise ImportError("PyMuPDF (fitz) is required to extract PDF paragraphs") from exc
+
         document = fitz.open(stream=file_bytes, filetype="pdf")
         records: list[ParagraphRecord] = []
         paragraph_index = 1
