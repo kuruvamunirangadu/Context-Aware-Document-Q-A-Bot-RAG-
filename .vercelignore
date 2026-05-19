@@ -13,5 +13,5 @@ logs/
 backend/logs/
 screenshots/
 chat_sessions.db
-frontend/
+# Frontend is required for Vercel deployment - don't ignore it
 # Do not ignore api/ folder - it's required for Vercel deployment
