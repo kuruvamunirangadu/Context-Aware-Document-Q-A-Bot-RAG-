@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -85,9 +85,12 @@ class DocumentSession:
     doc_id: str
     filename: str
     chunks: list[dict]
-    vector_index: object
+    vector_index: object | None
     total_chunks: int
     created_at: str
+    status: str = "ready"
+    error: str | None = None
+    file_size: int = 0
 
 
 document_sessions: dict[str, DocumentSession] = {}
@@ -133,14 +136,79 @@ def list_documents():
             "filename": session.filename,
             "total_chunks": session.total_chunks,
             "created_at": session.created_at,
+            "status": session.status,
+            "error": session.error,
+            "file_size": session.file_size,
         }
         for session in document_sessions.values()
     ]
     return {"documents": documents, "active_document_id": active_document_id}
 
 
+@app.get("/documents/{doc_id}")
+def get_document(doc_id: str):
+    session = document_sessions.get(doc_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {
+        "doc_id": session.doc_id,
+        "filename": session.filename,
+        "total_chunks": session.total_chunks,
+        "created_at": session.created_at,
+        "status": session.status,
+        "error": session.error,
+        "file_size": session.file_size,
+    }
+
+
+def process_document_upload(doc_id: str, filename: str, file_bytes: bytes) -> None:
+    started_at = time.perf_counter()
+    session = document_sessions.get(doc_id)
+    if session is None:
+        log_event("upload_session_missing", filename=filename, doc_id=doc_id)
+        return
+
+    try:
+        paragraph_records = extract_paragraphs(filename, file_bytes)
+        log_event("upload_paragraphs_extracted", filename=filename, doc_id=doc_id, paragraphs=len(paragraph_records))
+
+        chunks = create_document_chunks(paragraph_records)
+        log_event("upload_chunks_created", filename=filename, doc_id=doc_id, chunks=len(chunks))
+
+        if not chunks:
+            raise ValueError("No readable text was found in this document")
+
+        embeddings = generate_embeddings(chunks)
+        log_event(
+            "upload_embeddings_generated",
+            filename=filename,
+            doc_id=doc_id,
+            embeddings=len(embeddings),
+            dimension=len(embeddings[0]) if embeddings else 0,
+        )
+
+        index = create_faiss_index(embeddings)
+        log_event("upload_index_created", filename=filename, doc_id=doc_id, vectors=int(index.ntotal))
+
+        session.chunks = chunks
+        session.vector_index = index
+        session.total_chunks = len(chunks)
+        session.status = "ready"
+        session.error = None
+
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event("upload_completed", filename=filename, doc_id=doc_id, duration_ms=duration_ms)
+    except Exception as exc:
+        session.status = "failed"
+        session.error = str(exc)
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        logger.exception("Document processing failed for %s after %sms", filename, duration_ms)
+        log_event("upload_failed", filename=filename, doc_id=doc_id, duration_ms=duration_ms, error=str(exc))
+
+
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     global active_document_id
 
     started_at = time.perf_counter()
@@ -160,54 +228,33 @@ async def upload(file: UploadFile = File(...)):
     )
 
     try:
-        file_path = os.path.join(UPLOAD_FOLDER, filename)
         file_bytes = await file.read()
-        log_event("upload_read", filename=filename, bytes=len(file_bytes))
-
-        with open(file_path, "wb") as buffer:
-            buffer.write(file_bytes)
-        log_event("upload_saved", filename=filename, path=file_path)
-
-        paragraph_records = extract_paragraphs(filename, file_bytes)
-        log_event("upload_paragraphs_extracted", filename=filename, paragraphs=len(paragraph_records))
-
-        chunks = create_document_chunks(paragraph_records)
-        log_event("upload_chunks_created", filename=filename, chunks=len(chunks))
-
-        if not chunks:
-            raise HTTPException(status_code=400, detail="No readable text was found in this document")
-
-        embeddings = generate_embeddings(chunks)
-        log_event(
-            "upload_embeddings_generated",
-            filename=filename,
-            embeddings=len(embeddings),
-            dimension=len(embeddings[0]) if embeddings else 0,
-        )
-
-        index = create_faiss_index(embeddings)
-        log_event("upload_index_created", filename=filename, vectors=int(index.ntotal))
+        read_duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event("upload_read", filename=filename, bytes=len(file_bytes), duration_ms=read_duration_ms)
 
         doc_id = uuid4().hex
         document_sessions[doc_id] = DocumentSession(
             doc_id=doc_id,
             filename=filename,
-            chunks=chunks,
-            vector_index=index,
-            total_chunks=len(chunks),
+            chunks=[],
+            vector_index=None,
+            total_chunks=0,
             created_at=datetime.now(timezone.utc).isoformat(),
+            status="processing",
+            file_size=len(file_bytes),
         )
         active_document_id = doc_id
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
-        log_event("upload_completed", filename=filename, doc_id=doc_id, duration_ms=duration_ms)
+        log_event("upload_accepted", filename=filename, doc_id=doc_id, duration_ms=duration_ms)
+        background_tasks.add_task(process_document_upload, doc_id, filename, file_bytes)
 
         return {
-            "message": "Document processed successfully",
+            "message": "Document upload accepted. Processing started.",
             "doc_id": doc_id,
             "filename": filename,
-            "total_chunks": len(chunks),
-            "embedding_dimension": len(embeddings[0]) if embeddings else 0,
-            "vectors_stored": int(index.ntotal),
+            "total_chunks": 0,
+            "status": "processing",
+            "vectors_stored": 0,
         }
     except HTTPException:
         raise
@@ -228,6 +275,12 @@ async def ask_question(request: QuestionRequest):
     session = document_sessions.get(doc_id)
     if session is None:
         raise HTTPException(status_code=400, detail="Selected document session is no longer available")
+    if session.status == "processing":
+        raise HTTPException(status_code=409, detail="Document is still processing. Please try again in a moment.")
+    if session.status == "failed":
+        raise HTTPException(status_code=400, detail=session.error or "Document processing failed")
+    if session.vector_index is None:
+        raise HTTPException(status_code=400, detail="Document index is not available")
 
     results = retrieve_relevant_chunks(
         request.question,

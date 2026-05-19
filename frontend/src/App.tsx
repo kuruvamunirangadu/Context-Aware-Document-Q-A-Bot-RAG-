@@ -1,52 +1,26 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import axios from 'axios';
 
+import {
+  API_BASE_URL,
+  API_DOCS_URL,
+  askQuestion,
+  createSession,
+  deleteSessionById,
+  getApiErrorMessage,
+  getBackendStatus,
+  getDocument,
+  getDocuments,
+  getSessionMessages,
+  getSessions,
+  saveSessionMessage,
+  uploadDocument,
+  type ChatMessage,
+  type ChatSession,
+  type DocumentItem,
+} from './api/client.js';
 import UploadBox from './components/UploadBox.js';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const UNSPLASH_ACCESS_KEY = import.meta.env.VITE_UNSPLASH_ACCESS_KEY ?? 'Yf1_pqmkNoCZndjrhlo8QKIREHVwR9RZ1LbFbpdpisg';
-const API_DOCS_URL = `${API_BASE_URL.replace(/\/$/, '')}/docs`;
-
-type DocumentItem = {
-  docId: string;
-  filename: string;
-  totalChunks: number;
-  createdAt: string;
-};
-
-type Source = {
-  page: number | null;
-  chunk_id: number;
-  confidence: number;
-  score: number;
-  paragraph_index: number | null;
-  paragraph_text: string;
-};
-
-type ScopeInfo = {
-  in_scope: boolean;
-  reason: string;
-  top_score: number;
-  overlap: number;
-};
-
-type ChatMessage = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: Source[];
-  matchedParagraph?: string;
-  scope?: ScopeInfo;
-};
-
-type ChatSession = {
-  session_id: string;
-  document_id: string;
-  document_name: string;
-  title: string;
-  created_at: string;
-  updated_at: string;
-};
 
 const makeId = (): string => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -55,28 +29,26 @@ const makeId = (): string => {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
-const toDocument = (raw: unknown): DocumentItem | null => {
-  const doc = raw as {
-    doc_id?: string;
-    docId?: string;
-    filename?: string;
-    total_chunks?: number;
-    totalChunks?: number;
-    created_at?: string;
-    createdAt?: string;
-  };
+const waitForDocumentReady = async (docId: string): Promise<DocumentItem> => {
+  const attempts = 180;
 
-  const docId = String(doc.doc_id ?? doc.docId ?? '');
-  if (!docId) {
-    return null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const document = await getDocument(docId);
+
+    if (document.status === 'ready') {
+      return document;
+    }
+
+    if (document.status === 'failed') {
+      throw new Error(document.error ?? 'Document processing failed');
+    }
+
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, 1000);
+    });
   }
 
-  return {
-    docId,
-    filename: String(doc.filename ?? 'Untitled'),
-    totalChunks: Number(doc.total_chunks ?? doc.totalChunks ?? 0),
-    createdAt: String(doc.created_at ?? doc.createdAt ?? new Date().toISOString()),
-  };
+  throw new Error('Document processing timed out after 180 seconds');
 };
 
 const normalizeText = (value: string): string => value.toLowerCase().replace(/[_-]+/g, ' ').replace(/[^a-z0-9\s]/g, ' ');
@@ -182,6 +154,7 @@ export default function App() {
   const documentReady = Boolean(activeDocumentId);
 
   useEffect(() => {
+    void checkBackendStatus();
     void loadDocuments();
     void loadSessions();
   }, []);
@@ -243,15 +216,10 @@ export default function App() {
 
   const loadDocuments = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/documents`);
-      const rawDocuments: unknown[] = Array.isArray(response.data?.documents) ? response.data.documents : [];
-      const nextDocuments = rawDocuments
-        .map((raw: unknown) => toDocument(raw))
-        .filter((value: DocumentItem | null): value is DocumentItem => value !== null);
+      const { documents: nextDocuments, activeDocumentId: serverActiveId } = await getDocuments();
 
       setDocuments(nextDocuments);
 
-      const serverActiveId = response.data?.active_document_id as string | null | undefined;
       if (serverActiveId && nextDocuments.some((doc: DocumentItem) => doc.docId === serverActiveId)) {
         setActiveDocumentId(serverActiveId);
       } else if (nextDocuments.length > 0) {
@@ -259,13 +227,22 @@ export default function App() {
       }
     } catch (err) {
       console.error('Failed to load documents', err);
+      setStatusMessage(`Backend is not reachable at ${API_BASE_URL}. Check the Render service deploy.`);
+    }
+  };
+
+  const checkBackendStatus = async () => {
+    try {
+      await getBackendStatus();
+    } catch (err) {
+      console.error('Backend health check failed', err);
+      setStatusMessage(`Backend is not reachable at ${API_BASE_URL}. Check the Render service deploy.`);
     }
   };
 
   const loadSessions = async () => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/sessions`);
-      setSessions(Array.isArray(response.data?.sessions) ? (response.data.sessions as ChatSession[]) : []);
+      setSessions(await getSessions());
     } catch (err) {
       console.error('Failed to load sessions', err);
     }
@@ -273,8 +250,7 @@ export default function App() {
 
   const loadSessionMessages = async (sessionId: string) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/sessions/${sessionId}/messages`);
-      const messages = (Array.isArray(response.data?.messages) ? response.data.messages : []) as ChatMessage[];
+      const messages = await getSessionMessages(sessionId);
       const session = sessions.find((entry) => entry.session_id === sessionId);
       if (!session) {
         return;
@@ -293,11 +269,7 @@ export default function App() {
   const createNewSession = async (docId: string, docName: string) => {
     const sessionId = makeId();
     try {
-      await axios.post(`${API_BASE_URL}/sessions/create`, {
-        session_id: sessionId,
-        doc_id: docId,
-        doc_name: docName,
-      });
+      await createSession(sessionId, docId, docName);
       setActiveSessionId(sessionId);
       await loadSessions();
     } catch (err) {
@@ -307,7 +279,7 @@ export default function App() {
 
   const deleteSession = async (sessionId: string) => {
     try {
-      await axios.delete(`${API_BASE_URL}/sessions/${sessionId}`);
+      await deleteSessionById(sessionId);
       await loadSessions();
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
@@ -326,15 +298,7 @@ export default function App() {
 
   const persistMessage = async (sessionId: string, message: ChatMessage) => {
     try {
-      await axios.post(`${API_BASE_URL}/sessions/${sessionId}/messages`, {
-        session_id: sessionId,
-        message_id: message.id,
-        role: message.role,
-        content: message.content,
-        sources: message.sources,
-        matched_paragraph: message.matchedParagraph,
-        scope: message.scope,
-      });
+      await saveSessionMessage(sessionId, message);
     } catch (err) {
       console.error('Failed to save message', err);
     }
@@ -350,34 +314,28 @@ export default function App() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-
     setUploading(true);
     setStatusMessage('Processing document and building vector index...');
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
+      const { document: acceptedDocument, message } = await uploadDocument(selectedFile);
 
-      const nextDocument: DocumentItem = {
-        docId: String(response.data?.doc_id),
-        filename: String(response.data?.filename ?? selectedFile.name),
-        totalChunks: Number(response.data?.total_chunks ?? 0),
-        createdAt: new Date().toISOString(),
-      };
+      setDocuments((prev) => [acceptedDocument, ...prev.filter((doc) => doc.docId !== acceptedDocument.docId)]);
+      setActiveDocumentId(acceptedDocument.docId);
+      setStatusMessage(`${message} Checking indexing status...`);
+
+      const nextDocument = await waitForDocumentReady(acceptedDocument.docId);
 
       setDocuments((prev) => [nextDocument, ...prev.filter((doc) => doc.docId !== nextDocument.docId)]);
       setActiveDocumentId(nextDocument.docId);
       setMessagesByDocument((prev) => ({ ...prev, [nextDocument.docId]: [] }));
-      setStatusMessage(`${response.data?.message ?? 'Document processed'} (${nextDocument.totalChunks} chunks indexed)`);
+      setStatusMessage(`${message} (${nextDocument.totalChunks} chunks indexed)`);
       setSelectedFile(null);
 
       await createNewSession(nextDocument.docId, nextDocument.filename);
     } catch (err) {
       console.error(err);
-      setStatusMessage('Upload failed.');
+      setStatusMessage(`Upload failed: ${getApiErrorMessage(err)}. Check Render logs for upload_* events.`);
     } finally {
       setUploading(false);
     }
@@ -404,14 +362,14 @@ export default function App() {
     }
 
     try {
-      const res = await axios.post(`${API_BASE_URL}/ask`, { question: q, doc_id: activeDocumentId });
+      const answer = await askQuestion(q, activeDocumentId);
       const assistantMessage: ChatMessage = {
         id: makeId(),
         role: 'assistant',
-        content: String(res.data?.answer ?? 'Answer not found in document.'),
-        sources: (res.data?.sources ?? []) as Source[],
-        matchedParagraph: String(res.data?.retrieved_chunks?.[0]?.paragraph_text ?? res.data?.sources?.[0]?.paragraph_text ?? ''),
-        scope: res.data?.scope as ScopeInfo | undefined,
+        content: answer.answer,
+        sources: answer.sources,
+        matchedParagraph: answer.matchedParagraph,
+        scope: answer.scope,
       };
 
       appendMessage(activeDocumentId, assistantMessage);
