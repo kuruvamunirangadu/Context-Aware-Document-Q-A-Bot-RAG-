@@ -4,6 +4,7 @@ import os
 import json
 import logging
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -72,6 +73,13 @@ except Exception as e:
     print(f"Warning: Could not set up file logging: {e}")
 
 
+def log_event(event: str, **fields: object) -> None:
+    try:
+        logger.info(json.dumps({"event": event, **fields}, ensure_ascii=False))
+    except Exception:
+        logger.exception("Failed to write backend log event")
+
+
 @dataclass(slots=True)
 class DocumentSession:
     doc_id: str
@@ -112,6 +120,11 @@ def home():
     return {"message": "Backend Running Successfully"}
 
 
+@app.get("/health")
+def health():
+    return {"status": "ok", "message": "Backend Running Successfully"}
+
+
 @app.get("/documents")
 def list_documents():
     documents = [
@@ -130,45 +143,78 @@ def list_documents():
 async def upload(file: UploadFile = File(...)):
     global active_document_id
 
+    started_at = time.perf_counter()
     allowed_extensions = [".pdf", ".txt"]
+    filename = os.path.basename(file.filename or "")
 
-    file_extension = os.path.splitext(file.filename)[1].lower()
+    file_extension = os.path.splitext(filename)[1].lower()
 
     if file_extension not in allowed_extensions:
         raise HTTPException(status_code=400, detail="Only PDF and TXT files are allowed")
 
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-    file_bytes = await file.read()
-
-    with open(file_path, "wb") as buffer:
-        buffer.write(file_bytes)
-
-    paragraph_records = extract_paragraphs(file.filename, file_bytes)
-
-    chunks = create_document_chunks(paragraph_records)
-
-    embeddings = generate_embeddings(chunks)
-    index = create_faiss_index(embeddings)
-
-    doc_id = uuid4().hex
-    document_sessions[doc_id] = DocumentSession(
-        doc_id=doc_id,
-        filename=file.filename,
-        chunks=chunks,
-        vector_index=index,
-        total_chunks=len(chunks),
-        created_at=datetime.now(timezone.utc).isoformat(),
+    log_event(
+        "upload_received",
+        filename=filename,
+        content_type=file.content_type,
+        extension=file_extension,
     )
-    active_document_id = doc_id
 
-    return {
-        "message": "Document processed successfully",
-        "doc_id": doc_id,
-        "filename": file.filename,
-        "total_chunks": len(chunks),
-        "embedding_dimension": len(embeddings[0]) if embeddings else 0,
-        "vectors_stored": int(index.ntotal),
-    }
+    try:
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        file_bytes = await file.read()
+        log_event("upload_read", filename=filename, bytes=len(file_bytes))
+
+        with open(file_path, "wb") as buffer:
+            buffer.write(file_bytes)
+        log_event("upload_saved", filename=filename, path=file_path)
+
+        paragraph_records = extract_paragraphs(filename, file_bytes)
+        log_event("upload_paragraphs_extracted", filename=filename, paragraphs=len(paragraph_records))
+
+        chunks = create_document_chunks(paragraph_records)
+        log_event("upload_chunks_created", filename=filename, chunks=len(chunks))
+
+        if not chunks:
+            raise HTTPException(status_code=400, detail="No readable text was found in this document")
+
+        embeddings = generate_embeddings(chunks)
+        log_event(
+            "upload_embeddings_generated",
+            filename=filename,
+            embeddings=len(embeddings),
+            dimension=len(embeddings[0]) if embeddings else 0,
+        )
+
+        index = create_faiss_index(embeddings)
+        log_event("upload_index_created", filename=filename, vectors=int(index.ntotal))
+
+        doc_id = uuid4().hex
+        document_sessions[doc_id] = DocumentSession(
+            doc_id=doc_id,
+            filename=filename,
+            chunks=chunks,
+            vector_index=index,
+            total_chunks=len(chunks),
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        active_document_id = doc_id
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        log_event("upload_completed", filename=filename, doc_id=doc_id, duration_ms=duration_ms)
+
+        return {
+            "message": "Document processed successfully",
+            "doc_id": doc_id,
+            "filename": filename,
+            "total_chunks": len(chunks),
+            "embedding_dimension": len(embeddings[0]) if embeddings else 0,
+            "vectors_stored": int(index.ntotal),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        logger.exception("Document upload failed for %s after %sms", filename, duration_ms)
+        raise HTTPException(status_code=500, detail=f"Upload failed while processing {filename}: {exc}") from exc
 
 
 @app.post("/ask")
@@ -299,4 +345,3 @@ def update_chat_session_title(session_id: str, title: str):
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
