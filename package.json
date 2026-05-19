@@ -1,0 +1,9 @@
+{
+  "name": "context-aware-document-qa-bot",
+  "version": "1.0.0",
+  "description": "Full-stack RAG application with FastAPI backend and React frontend",
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build"
+  }
+}
