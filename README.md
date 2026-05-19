@@ -137,7 +137,8 @@ Render backend settings:
 Vercel frontend settings:
 
 - Framework preset: Vite
-- Environment variable: `VITE_API_BASE_URL=https://your-backend.onrender.com`
+- Environment variable: `VITE_API_BASE_URL=https://context-aware-document-q-a-bot-rag-1.onrender.com`
+- The deployed frontend can also link directly to the backend docs at `https://context-aware-document-q-a-bot-rag-1.onrender.com/docs`
 
 ## Testing
 

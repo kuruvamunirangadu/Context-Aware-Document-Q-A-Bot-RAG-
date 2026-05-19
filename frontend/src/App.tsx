@@ -5,6 +5,7 @@ import UploadBox from './components/UploadBox.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000';
 const UNSPLASH_ACCESS_KEY = import.meta.env.VITE_UNSPLASH_ACCESS_KEY ?? 'Yf1_pqmkNoCZndjrhlo8QKIREHVwR9RZ1LbFbpdpisg';
+const API_DOCS_URL = `${API_BASE_URL.replace(/\/$/, '')}/docs`;
 
 type DocumentItem = {
   docId: string;
@@ -476,6 +477,14 @@ export default function App() {
           <div>
             <h1>Document Q&A Bot</h1>
             <p className="chat-header__status">{statusMessage}</p>
+          </div>
+          <div className="chat-header__links">
+            <a className="chat-header__link" href={API_BASE_URL} target="_blank" rel="noreferrer">
+              Backend API
+            </a>
+            <a className="chat-header__link" href={API_DOCS_URL} target="_blank" rel="noreferrer">
+              API Docs
+            </a>
           </div>
         </header>
 
