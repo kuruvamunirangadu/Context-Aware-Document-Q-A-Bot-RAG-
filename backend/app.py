@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import logging
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -41,22 +42,34 @@ try:
 except Exception as e:
     print(f"Warning: Could not initialize database: {e}")
 
-# Logging setup for ask calls
+# Logging setup for ask calls: always log to stdout; attempt file logging when writable
 LOGS_FOLDER = "logs"
+logger = logging.getLogger("rag_logger")
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 
+# Stream handler to stdout (captured by Vercel)
+try:
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setLevel(logging.INFO)
+    sh.setFormatter(formatter)
+    # Avoid adding duplicate handlers on reload
+    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+        logger.addHandler(sh)
+except Exception as e:
+    # If stdout handler fails (very unlikely), fall back to no-op
+    print(f"Warning: Could not set up stdout logging: {e}")
+
+# Try to add a file handler if filesystem is writable
 try:
     os.makedirs(LOGS_FOLDER, exist_ok=True)
-    logger = logging.getLogger("rag_logger")
-    logger.setLevel(logging.INFO)
     fh = logging.FileHandler(os.path.join(LOGS_FOLDER, "ask_calls.log"))
     fh.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     fh.setFormatter(formatter)
-    if not logger.handlers:
+    if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
         logger.addHandler(fh)
 except Exception as e:
-    print(f"Warning: Could not set up logging: {e}")
-    logger = logging.getLogger("rag_logger")
+    print(f"Warning: Could not set up file logging: {e}")
 
 
 @dataclass(slots=True)
