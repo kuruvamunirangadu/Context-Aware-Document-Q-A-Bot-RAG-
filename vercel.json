@@ -1,12 +1,6 @@
 {
   "buildCommand": "cd frontend && npm install && npm run build",
   "outputDirectory": "frontend/dist",
-  "builds": [
-    {
-      "src": "api/index.py",
-      "use": "@vercel/python@latest"
-    }
-  ],
   "routes": [
     {
       "src": "/api/(.*)",
@@ -14,7 +8,7 @@
     },
     {
       "src": "/(.*)",
-      "dest": "/$1"
+      "dest": "/index.html"
     }
   ],
   "cleanUrls": true
