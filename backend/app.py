@@ -30,22 +30,33 @@ app.add_middleware(
 
 UPLOAD_FOLDER = "uploads"
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+try:
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+except Exception as e:
+    print(f"Warning: Could not create {UPLOAD_FOLDER}: {e}")
 
 # Initialize chat database
-init_db()
+try:
+    init_db()
+except Exception as e:
+    print(f"Warning: Could not initialize database: {e}")
 
 # Logging setup for ask calls
 LOGS_FOLDER = "logs"
-os.makedirs(LOGS_FOLDER, exist_ok=True)
-logger = logging.getLogger("rag_logger")
-logger.setLevel(logging.INFO)
-fh = logging.FileHandler(os.path.join(LOGS_FOLDER, "ask_calls.log"))
-fh.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-fh.setFormatter(formatter)
-if not logger.handlers:
-    logger.addHandler(fh)
+
+try:
+    os.makedirs(LOGS_FOLDER, exist_ok=True)
+    logger = logging.getLogger("rag_logger")
+    logger.setLevel(logging.INFO)
+    fh = logging.FileHandler(os.path.join(LOGS_FOLDER, "ask_calls.log"))
+    fh.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    fh.setFormatter(formatter)
+    if not logger.handlers:
+        logger.addHandler(fh)
+except Exception as e:
+    print(f"Warning: Could not set up logging: {e}")
+    logger = logging.getLogger("rag_logger")
 
 
 @dataclass(slots=True)

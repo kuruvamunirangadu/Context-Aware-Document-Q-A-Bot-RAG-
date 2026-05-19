@@ -6,34 +6,43 @@ from fastapi.responses import JSONResponse
 # Ensure backend directory is in Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Create app at module level so Vercel can find it
+# Create a minimal app that Vercel can recognize
 app = FastAPI()
 
-# Try to import and mount the actual backend app
+# Try to import the actual backend app and use it directly
 try:
     from backend.app import app as backend_app
-    # Copy all routes from backend app
-    app.router.routes.extend(backend_app.router.routes)
-    app.user_middleware.extend(backend_app.user_middleware)
+    # Replace the module-level app with the actual backend app
+    # This preserves all routes and middleware
+    app = backend_app
+    
 except Exception as e:
-    # If backend import fails, add error endpoint
+    import traceback
+    error_traceback = traceback.format_exc()
     error_msg = f"Backend initialization failed: {str(e)}"
     
+    # If import fails, provide error diagnostics
     @app.get("/")
     def health():
         return JSONResponse(
-            {"error": "Backend initialization failed", "details": str(e)},
+            {
+                "status": "error",
+                "message": error_msg,
+                "details": error_traceback
+            },
             status_code=500
         )
     
     @app.get("/health")
     def health_check():
         return JSONResponse(
-            {"status": "error", "details": error_msg},
+            {
+                "status": "error", 
+                "message": error_msg
+            },
             status_code=500
         )
 
-# Vercel handler (alternative export name)
+# Vercel handler
 handler = app
-
 
